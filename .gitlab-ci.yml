@@ -1,0 +1,69 @@
+variables:
+  itr_TECHNOLOGY: none
+
+stages:
+  - build
+  - deploy
+
+before_script:
+  - if [ -f /itr-init.sh ]; then source /itr-init.sh; fi
+
+build:node:
+  image: intractosre/node:14
+  stage: build
+  script:
+    - echo 'export default "https://organigram.hosted-temp.com/json";' > src/api/baseUrl.js
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - src/api/baseUrl.js
+      - node_modules
+      - dist
+
+deploy:testing:
+  image: intractosre/deploy:1
+  stage: deploy
+  environment: testing
+  variables:
+    itr_server_environment: testing
+    itr_server_host: organigram.testing.intracto.com
+    itr_server_user: organigram
+    itr_server_base: /var/www/organigram.hosted-temp.com
+    itr_server_current: ${itr_server_base}/current
+    itr_server_next: ${itr_server_base}/next
+    itr_server_shared: ${itr_server_base}/shared
+    itr_server_releases: ${itr_server_base}/releases
+    itr_server_url: https://organigram.hosted-temp.com/
+  dependencies:
+    - build:node
+  rules:
+    #   Check if hostname has changed, if not assume not configured
+    - if: '$itr_server_host == "project.testing.intracto.com"'
+      when: never
+    #   If this is a merge-request, set to manual
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+    #   If this is a commit in the testing branch, automatically deploy
+    - if: '$CI_COMMIT_BRANCH == "testing"'
+      when: on_success
+    #   Default rule, set to manual
+    - when: manual    
+  script:
+    #   Clone and init itr_deploy_scripts
+    - set -x
+    - ssh-keyscan -t rsa gitlab.hosted-tools.com >> ~/.ssh/known_hosts
+    - if [ ! -d .itr/scripts ]; then git clone git@gitlab.hosted-tools.com:intracto/itr_deploy_scripts .itr/scripts; rm -rf .itr/scripts/.git; fi
+    - cd .itr/scripts
+    - ./deploy.sh general env
+
+    #   Rsync files to server
+    - ssh-keyscan -t rsa ${itr_server_host} >> ~/.ssh/known_hosts
+    - rsync -azc --delete --rsh='ssh -p 22' ${CI_PROJECT_DIR}/ ${itr_server_user}@${itr_server_host}:${itr_server_shared}/cached-copy/
+
+    #   Prepare release
+    - ssh ${itr_server_user}@${itr_server_host} ${itr_server_shared}/cached-copy/.itr/scripts/deploy.sh general prepare_release
+
+    #   Run main framework task
+    - ssh ${itr_server_user}@${itr_server_host} ${itr_server_shared}/cached-copy/.itr/scripts/deploy.sh main
+
