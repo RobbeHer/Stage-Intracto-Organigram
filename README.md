@@ -15,14 +15,14 @@ npm run serve
 npm run build
 ```
 
+### Run JSON server
+```
+npm run server
+```
+
 ### Lints and fixes files
 ```
 npm run lint
-```
-
-### Run JSON server
-```
-./node_modules/.bin/json-server --watch src/json/mockupdb.json
 ```
 
 ### Customize configuration
